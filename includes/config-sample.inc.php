@@ -38,7 +38,7 @@ define('WEB_ROOT', BASE_PATH . '/htdocs');
 /*
  * The file in the /includes/ directory that contains functions custom to this installation.
  */
-//define('CUSTOM_FUNCTIONS', 'class.State-sample.inc.php');
+define('CUSTOM_FUNCTIONS', 'class.State-sample.inc.php');
 
 /*
  * Which template to use.
@@ -49,6 +49,11 @@ define('TEMPLATE', 'default');
  * What is the title of the website?
  */
 define('SITE_TITLE', 'The State Decoded');
+
+/*
+ * What is the name of the place that these laws govern?
+ */
+define('PLACE_NAME', 'State');
 
 /*
  * What does this state call its laws?

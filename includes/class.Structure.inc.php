@@ -181,7 +181,8 @@ class Structure
 		
 		// Iterate through the levels and build up the URLs recursively.
 		$i=0;
-		$url = 'http://' . $_SERVER['SERVER_NAME'].'/';
+		$url = 'http://' . $_SERVER['SERVER_NAME']
+			. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] ) . '/';
 		$url_suffix = '';
 		foreach ($this->structure as &$level)
 		{
@@ -301,13 +302,12 @@ class Structure
 			if (INCLUDES_REPEALED === TRUE)
 			{
 				$sql .= ' AND
-						(SELECT COUNT(*)
-						FROM laws
-						LEFT JOIN laws_meta
-							ON laws.id = laws_meta.law_id
-						WHERE laws.structure_id=structure.id
-						AND laws_meta.meta_key = "repealed"
-						AND laws_meta.meta_value = "n") > 0';
+					(SELECT COUNT(*)
+					FROM laws
+					LEFT OUTER JOIN laws_meta
+						ON laws.id = laws_meta.law_id AND laws_meta.meta_key = "repealed"
+					WHERE laws.structure_id=structure.id
+					AND ((laws_meta.meta_value = "n") OR laws_meta.meta_value IS NULL)  ) > 0';
 			}
 
 		}
@@ -348,7 +348,8 @@ class Structure
 			
 			// Figure out the URL for this structural unit by iterating through the "identifier"
 			// columns in this row.
-			$child->url = 'http://'.$_SERVER['SERVER_NAME'].'/';
+			$child->url = '//' . $_SERVER['SERVER_NAME'] .
+				( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] ) . '/';
 			$tmp = array();
 			foreach ($child as $key => $value)
 			{
@@ -376,7 +377,9 @@ class Structure
 			}
 			$tmp = array_reverse($tmp);
 			$child->url .= implode('/', $tmp).'/';
-			$child->api_url = 'http://'.$_SERVER['SERVER_NAME'].'/api/structure/'.implode('/', $tmp).'/';
+			$child->api_url = 'http://' . $_SERVER['SERVER_NAME']
+				. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
+				. '/api/structure/' . implode('/', $tmp) . '/';
 			$children->$i = $child;
 			$i++;
 		}
@@ -451,7 +454,8 @@ class Structure
 		
 		// To assign URLs, we iterate through the object in reverse, and build up the URLs from
 		// their structure identifiers.
-		$url = 'http://'.$_SERVER['SERVER_NAME'].'/';
+		$url = 'http://' . $_SERVER['SERVER_NAME']
+			. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] ) . '/';
 		foreach (array_reverse((array) $ancestry) as $key => $level)
 		{
 			$url .= urlencode($level->identifier).'/';
@@ -522,31 +526,27 @@ class Structure
 		// should fail with the order_by field. The section column is not wholly reliable for
 		// sorting (hence the order_by field), but it's a great deal better than an unsorted list.
 
-		/**
-		 * TODO: Replace this with a join instead ???
-		 * The lookup will be much more efficient.
-		 *     SELECT laws.id, laws.structure_id, laws.section AS section_number, laws.catch_line
-		 *     FROM laws
-		 *     INNER JOIN laws_meta
-		 *     ON laws_meta.law_id = laws.id AND laws_meta.meta_key = "repealed"
-		 *     WHERE laws.structure_id=974
-		 *     AND
-		 *     laws_meta.meta_value = "n"
-		 *     ORDER BY laws.order_by, laws.section
-		 */
-
-		$sql = 'SELECT id, structure_id, section AS section_number, catch_line
-				FROM laws
-				WHERE structure_id='.$db->quote($this->id).' ';
-		if (INCLUDES_REPEALED == TRUE)
+		if (INCLUDES_REPEALED !== TRUE)
 		{
-			$sql .= 'AND 
-				(SELECT meta_value
-				FROM laws_meta
-				WHERE law_id = laws.id
-				AND meta_key = "repealed") = "n" ';
+		
+			$sql = 'SELECT id, structure_id, section AS section_number, catch_line
+					FROM laws
+					WHERE structure_id=' . $db->quote($this->id) . '
+					ORDER BY order_by, section';
 		}
-		$sql .= 'ORDER BY order_by, section';
+		
+		else
+		{
+		
+			$sql = 'SELECT laws.id, laws.structure_id, laws.section AS section_number, laws.catch_line
+					FROM laws
+					LEFT OUTER JOIN laws_meta
+					ON laws_meta.law_id = laws.id AND laws_meta.meta_key = "repealed"
+					WHERE structure_id=' . $db->quote($this->id) . '
+					AND (laws_meta.meta_value = "n" OR laws_meta.meta_value IS NULL)
+					ORDER BY order_by, section';
+		}
+
 		
 		// Execute the query.
 		$result = $db->query($sql);
@@ -564,11 +564,16 @@ class Structure
 		$i=0;
 		while ($section = $result->fetch(PDO::FETCH_OBJ))
 		{
+		
 			// Figure out the URL and include that.
-			$section->url = 'http://'.$_SERVER['SERVER_NAME'].'/'.$section->section_number.'/';
+			$section->url = 'http://'.$_SERVER['SERVER_NAME']
+				. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
+				. '/'.$section->section_number.'/';
 			
 			// Ditto for the API URL.
-			$section->api_url = 'http://'.$_SERVER['SERVER_NAME'].'/api/law/'.$section->section_number.'/';
+			$section->api_url = 'http://'.$_SERVER['SERVER_NAME']
+				. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
+				. '/api/law/'.$section->section_number.'/';
 			
 			// Sometimes there are laws that lack titles. We've got to put something in that field.
 			if (empty($section->catch_line))
@@ -578,6 +583,7 @@ class Structure
 			
 			$laws->$i = $section;
 			$i++;
+			
 		}
 		return $laws;
 	}

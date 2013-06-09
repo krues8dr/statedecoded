@@ -38,6 +38,14 @@ class Law
 		}
 		
 		/*
+		 * If we haven't specified which fields that we want, then assume that we want all of them.
+		 */
+		if (!isset($this->config->get_all))
+		{
+			$this->config->get_all = TRUE;
+		}
+		
+		/*
 		 * Define the level of detail that we want from this method. By default, we return
 		 * everything that we have for this law.
 		 */
@@ -132,10 +140,20 @@ class Law
 		$this->full_text = wptexturize($this->full_text);
 		
 		/*
-		 * Now get the text for this law.
+		 * Now get the text for this law, subsection by subsection.
 		 */
 		if ($this->config->get_text === TRUE)
 		{
+			
+			/*
+			 * When invoking this method in a loop, $this->text can pile up on itself. If the text
+			 * property is already set, clear it out.
+			 */
+			if (isset($this->text))
+			{
+				unset($this->text);
+			}
+			
 			$sql = 'SELECT id, text, type,
 						(SELECT
 							GROUP_CONCAT(identifier
@@ -228,28 +246,32 @@ class Law
 
 			/*
 			 * Figure out what the next and prior sections are (we may have 0-1 of either). Iterate
-			 * through all of the contents of the chapter.
+			 * through all of the contents of the chapter. (It's possible that there are no next or
+			 * prior sections, such as in a single-item structural unit.)
 			 */
-			$tmp = count((array) $this->structure_contents);
-			for ($i=0; $i<$tmp; $i++)
+			if ($this->structure_contents !== FALSE)
 			{
-				/*
-				 * When we get to our current section, that's when we get to work.
-				 */
-				if ($this->structure_contents->$i->id == $this->section_id)
+				$tmp = count((array) $this->structure_contents);
+				for ($i=0; $i<$tmp; $i++)
 				{
-					$j = $i-1;
-					$k = $i+1;
-					if (isset($this->structure_contents->$j))
+					/*
+					 * When we get to our current section, that's when we get to work.
+					 */
+					if ($this->structure_contents->$i->id == $this->section_id)
 					{
-						$this->previous_section = $this->structure_contents->$j;
+						$j = $i-1;
+						$k = $i+1;
+						if (isset($this->structure_contents->$j))
+						{
+							$this->previous_section = $this->structure_contents->$j;
+						}
+						
+						if (isset($this->structure_contents->$k))
+						{
+							$this->next_section = $this->structure_contents->$k;
+						}
+						break;
 					}
-					
-					if (isset($this->structure_contents->$k))
-					{
-						$this->next_section = $this->structure_contents->$k;
-					}
-					break;
 				}
 			}
 		}
@@ -357,7 +379,9 @@ class Law
 		/*
 		 * Provide the URL for this section.
 		 */
-		$this->url = 'http://'.$_SERVER['SERVER_NAME'].'/'.$this->section_number.'/';
+		$this->url = 'http://' . $_SERVER['SERVER_NAME']
+			. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
+			. '/' . $this->section_number . '/';
 		
 		/*
 		 * Create metadata in the Dublin Core format.
@@ -369,7 +393,10 @@ class Law
 		$this->dublin_core->Identifier = SECTION_SYMBOL . ' ' . $this->section_number;
 		$this->dublin_core->Relation = LAWS_NAME;
 	
-		if ($this->config->render_html === TRUE)
+		/*
+		 * If the request specifies that rendered HTML should be returned, then generate that.
+		 */
+		if ( isset($this->config->render_html) && ($this->config->render_html === TRUE) )
 		{
 			$this->html = Law::render();
 		}
@@ -378,6 +405,19 @@ class Law
 		 * Provide a plain text version of this law.
 		 */
 		$this->plain_text = Law::render_plain_text();
+	
+		/*
+		 * Provide a plain text document header.
+		 */
+		$this->plain_text =  str_repeat(' ', (round(((81 - strlen(LAWS_NAME)) / 2))))
+			. strtoupper(LAWS_NAME) . "\n\n"
+			. wordwrap(strtoupper($this->catch_line) . ' (' . SECTION_SYMBOL . ' '
+			. $this->section_number . ')', 80, "\n", TRUE)
+			. "\n\n" . $this->plain_text;
+		if (!empty($this->history))
+		{
+			$this->plain_text .=  "\n" . wordwrap('HISTORY: ' . $this->history, 80, "\n", TRUE);
+		}
 		
 		$law = $this;
 		unset($law->config);
@@ -438,7 +478,9 @@ class Law
 		while ($reference = $result->fetch(PDO::FETCH_OBJ))
 		{
 			$reference->catch_line = stripslashes($reference->catch_line);
-			$reference->url = 'http://'.$_SERVER['SERVER_NAME'].'/'.$reference->section_number.'/';
+			$reference->url = 'http://' . $_SERVER['SERVER_NAME']
+				. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
+				. '/' . $reference->section_number . '/';
 			
 			$references->$i = $reference;
 			$i++;
@@ -546,9 +588,32 @@ class Law
 		 */
 		foreach($metadata as $field)
 		{
-			$rotated->{stripslashes($field->meta_key)} = unserialize(stripslashes($field->meta_value));
+			
+			$row->meta_value = stripslashes($row->meta_value);
+			
+			/*
+			 * If unserializing this value works, then we've got serialized data here.
+			 */
+			if (@unserialize($row->meta_value) !== FALSE)
+			{
+				$row->meta_value = unserialize($row->meta_value);
+			}
+			
+			/*
+			 * Convert y/n values into TRUE/FALSE values.
+			 */
+			if ($row->meta_value == 'y')
+			{
+				$row->meta_value = TRUE;
+			}
+			elseif ($row->meta_value == 'n')
+			{
+				$row->meta_value = FALSE;
+			}
+			
+			$rotated->{stripslashes($row->meta_key)} = $row->meta_value;
+			
 		}
-		
 		return $rotated;
 	}
 	
@@ -671,8 +736,15 @@ class Law
 		}
 		
 		/*
-		 * Instantiate our autolinker, which embeds links.
+		 * Instantiate our autolinker, which embeds links. If we've defined a state-custom
+		 * autolinker, use that one. Otherwise, use the built-in one. Be sure not to attempt to
+		 * autoload a file fitting our class-name schema, since this class, if it exists, would be
+		 * found within class.[State].inc.php.
 		 */
+		if (class_exists('State_Autolinker', FALSE) === TRUE)
+		{
+			$autolinker = new State_Autolinker;
+		}
 		$autolinker = new Autolinker;
 
 		/*
@@ -737,7 +809,7 @@ class Law
 					<section';
 				if (!empty($paragraph->prefix_anchor))
 				{
-					$html .= ' id="'.$paragraph->prefix_anchor.'"';
+					$html .= ' id="' . $paragraph->prefix_anchor . '"';
 				}
 				
 				/*
@@ -745,8 +817,7 @@ class Law
 				 */
 				if ($paragraph->level > 1)
 				{
-					$html .= ' class="indent-'.($paragraph->level-1);
-					$html .= '"';
+					$html .= ' class="indent-' . ($paragraph->level-1) . '"';
 				}
 				$html .= '>';
 			}
@@ -804,17 +875,12 @@ class Law
 				/*
 				 * Assemble the permalink
 				 */
-				$protocol = 'http://';
-				
-				if (!empty($_SERVER['HTTPS']))
-				{
-					$protocol = 'https://';
-				}
-				$permalink = $protocol . $_SERVER['SERVER_NAME'] . $_SERVER['REQUEST_URI'] . 
-				             '#'.$paragraph->prefix_anchor;
+				$permalink = '//' . $_SERVER['SERVER_NAME']
+					. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
+					. $_SERVER['REQUEST_URI'] . '#' . $paragraph->prefix_anchor;
 
-				$html .= ' <a id="test-'.$paragraph->id.'"';
-				$html .= ' class="section-permalink" href="'.$permalink.'">¶</a>';
+				$html .= ' <a id="paragraph-' . $paragraph->id . '" class="section-permalink" '
+					.'href="' . $permalink . '">¶</a>';
 			}
 			if ($paragraph->type == 'section')
 			{
@@ -933,13 +999,13 @@ class Law
 				$lines = explode("\n", $subsection);
 				foreach ($lines as &$line)
 				{
-					$line = str_repeat(' ', ( ($paragraph->level - 1) * 3 )).$line;
+					$line = str_repeat(' ', ( ($paragraph->level - 1) * 3 )) . $line;
 				}
 				$subsection = implode("\n", $lines);
 			}
 			
 			/*
-			 * Finish up with a pair of carriage returns.
+			 * Finish up with a pair of newlines.
 			 */
 			$subsection .= "\n\n";
 			
@@ -950,6 +1016,12 @@ class Law
 			
 			$i++;
 		}
+		
+		/*
+		 * Hack off any trailing (or, somehow, leading) whitespace, and finish with a single
+		 * newline.
+		 */
+		$text = trim($text) . "\n";
 		
 		return $text;
 		
