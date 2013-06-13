@@ -18,7 +18,8 @@
 class ApiKeyController extends BaseController
 {
 	protected $api;
-	function __construct() {
+	function __construct()
+	{
 		parent::__construct();
 		
 		
