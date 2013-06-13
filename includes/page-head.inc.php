@@ -120,3 +120,9 @@ require(CUSTOM_FUNCTIONS);
 $help = new Help();
 
 // The help text is now available, as a JSON object, as $help->get_text()
+
+/*
+ * Establish routes
+ */
+
+require('routes.inc.php');

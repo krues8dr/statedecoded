@@ -135,66 +135,6 @@ class API
 			return FALSE;
 		}
 	}
-	
-	
-	/**
-	 * Display a registration form.
-	 */
-	function display_form()
-	{
-	
-		$form = '
-			<form method="post" action="/api-key/" id="api-registration">
-				
-				<label for="name">Your Name</label>
-				<input type="name" id="name" name="form_data[name]" placeholder="John Doe" value="'.$this->form->name.'" />
-				
-				<label for="email">E-Mail Address <span class="required">*</span></label>
-				<input type="email" id="email" name="form_data[email]" placeholder="john_doe@example.com" required value="'.$this->form->email.'" />
-				
-				<label for="url">Website URL</label>
-				<input type="url" id="url" name="form_data[url]" placeholder="http://www.example.com/" value="'.$this->form->url.'" />
-				
-				<input type="submit" value="Submit" />
-				
-			</form>
-			
-			<p id="required-note"><span class="required">*</span> Required field</p>';
-		
-		return $form;
-	}
-	
-	
-	/**
-	 * Validate a submitted form.
-	 */
-	function validate_form()
-	{
-
-		if (!isset($this->form))
-		{
-			return FALSE;
-		}
-		if (empty($this->form->email))
-		{
-			$this->form_errors = 'Please provide your e-mail address.';
-			return FALSE;
-		}
-		elseif (filter_var($this->form->email, FILTER_VALIDATE_EMAIL) === FALSE)
-		{
-			$this->form_errors = 'Please enter a valid e-mail address.';
-			return FALSE;
-		}
-		
-		if ( !empty($this->form_url) && (filter_var($this->form->url, FILTER_VALIDATE_URL) === FALSE) )
-		{
-			$this->form_errors = 'Please enter a valid URL.';
-			return FALSE;
-		}
-		
-		return TRUE;
-	}
-	
 
 	/**
 	 * Register a new API key. Note that a registered key must be activated before it can be used.
@@ -238,7 +178,7 @@ class API
 		}
 		if (!empty($this->url))
 		{
-			$sql .= ', url=' . $db->quote($this->url)
+			$sql .= ', url=' . $db->quote($this->url);
 		}
 		
 		/*
@@ -326,7 +266,7 @@ class API
 		
 		$email->body = 'Click on the following link to activate your ' . SITE_TITLE . ' API key.'
 			. "\r\r"
-			. 'http://' . $_SERVER['SERVER_NAME'] . '/api-key/?secret=' . $this->secret;
+			. 'http://' . $_SERVER['SERVER_NAME'] . '/api-key/activate/' . $this->secret;
 		$email->subject = SITE_TITLE . ' API Registration';
 		$email->headers = 'From: ' . EMAIL_NAME . ' <' . EMAIL_ADDRESS . ">\n"
 						.'Return-Path: ' . EMAIL_NAME . ' <' . EMAIL_ADDRESS . ">\n"
