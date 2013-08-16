@@ -13,9 +13,6 @@
  * @since		0.1
 */
 
-# Include the PHP declarations that drive this page.
-require '../includes/page-head.inc.php';
-
 # Create a new instance of Structure.
 $struct = new Structure();
 
@@ -44,7 +41,7 @@ if (count((array) $structure) > 1)
 	foreach ($structure as $level)
 	{
 		$template->field->breadcrumbs .= ' <a href="'.$level->url.'">'.$level->identifier.': '.$level->name.'</a> →';
-		
+
 		# If this structural element is the same as the parent container, then use that knowledge
 		# to populate the link rel="up" tag.
 		if ($level->id == $struct->parent_id)
@@ -72,10 +69,10 @@ if (isset($struct->siblings))
 
 	/*
 	 * Locate the instant structural unit within the structure listing.
-	 */ 
+	 */
 	$current_structure = end($structure);
 	$i=0;
-	
+
 	/*
 	 * When the present structure is identified, pull out the prior and next ones.
 	 */
@@ -98,7 +95,7 @@ if (isset($struct->siblings))
 				$template->field->link_rel .= '<link rel="next" title="Next" href="' . $tmp->url . '" />';
 			}
 			break;
-			
+
 		}
 		$i++;
 	}
@@ -148,7 +145,7 @@ if ($laws !== FALSE)
 	$body .= '<dl class="laws">';
 
 	foreach ($laws as $law)
-	{	
+	{
 		$body .= '
 				<dt><a href="'.$law->url.'">'.SECTION_SYMBOL.'&nbsp;'.$law->section_number.'</a></dt>
 				<dd><a href="'.$law->url.'">'.$law->catch_line.'</a></dd>';

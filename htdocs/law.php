@@ -13,10 +13,6 @@
  * @since		0.1
 */
 
-/*
- * Include the PHP declarations that drive this page.
- */
-require '../includes/page-head.inc.php';
 
 /*
  * Create a new instance of Law.
@@ -26,7 +22,8 @@ $laws = new Law();
 /*
  * Use the section number in the URL as the section number that we're looking up.
  */
-$laws->section_number = urldecode($_GET['section_number']);
+
+$laws->section_number = urldecode($args['section_number']);
 
 /*
  * Retrieve a copy of the law.
@@ -48,12 +45,12 @@ $laws->record_view();
  */
 if (isset($_GET['plain_text']))
 {
-	
+
 	/*
 	 * Instruct the browser that this is plain text.
 	 */
 	header("Content-Type: text/plain");
-	
+
 	/*
 	 * Provide a document header.
 	 */
@@ -61,17 +58,17 @@ if (isset($_GET['plain_text']))
 		.strtoupper(LAWS_NAME)."\n\n";
 	echo wordwrap(strtoupper($law->catch_line).' ('.SECTION_SYMBOL.' '.$law->section_number.')'
 		."\n\n", 80, "\n", true);
-		
+
 	/*
 	 * Send the text itself, which is already formatted properly.
 	 */
 	echo $law->plain_text;
-	
+
 	/*
 	 * Include the history.
 	 */
 	echo wordwrap('HISTORY: '.$law->history, 80, "\n", true);
-	
+
 	/*
 	 * End processing and exit.
 	 */
@@ -203,7 +200,7 @@ if ( (INCLUDES_REPEALED == TRUE) && (empty($law->repealed) || ($law->repealed !=
 	if (count((array) $law->amendment_years) > 1)
 	{
 		$sidebar .= ' It was updated in ';
-	
+
 		/*
 		 * Iterate through every year in which this bill has been amended and list them.
 		 */
@@ -245,7 +242,7 @@ if (defined('DISQUS_SHORTNAME') === TRUE)
 		<div id="disqus_thread"></div>
 		<script>
 			var disqus_shortname = 'vacode'; // required: replace example with your forum shortname
-		
+
 			/* * * DON'T EDIT BELOW THIS LINE * * */
 			(function() {
 				var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
@@ -299,7 +296,7 @@ if ($law->references !== FALSE)
  */
 if (isset($law->related) && (count((array) $law->related) > 0))
 {
-	$sidebar .= '			  
+	$sidebar .= '
 			<section id="related-links">
 				<h1>Related Laws</h1>
 				<ul id="related">';
@@ -318,7 +315,7 @@ if (isset($law->related) && (count((array) $law->related) > 0))
  */
 if ( isset($law->citation) && is_object($law->citation) )
 {
-	
+
 	$sidebar .= '<section id="cite-as">
 				<h1>Cite As</h1>
 				<ul>';
@@ -329,7 +326,7 @@ if ( isset($law->citation) && is_object($law->citation) )
 	}
 	$sidebar .= '</ul>
 			</section>';
-	
+
 }
 
 $sidebar .= '<section id="elsewhere">
@@ -343,7 +340,6 @@ if (isset($law->official_url))
 $sidebar .= ' on the official '.LAWS_NAME.' website</a>.
 			</section>';
 
-$sidebar .= '<section id="keyboard-guide"><a id="keyhelp">'.$help->get_text('keyboard')->title.'</a></section>';
 
 /*
  * Put the shorthand $body variable into its proper place.

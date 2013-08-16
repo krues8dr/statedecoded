@@ -21,6 +21,14 @@ Router::addRoute('^/api-key/\?secret=(?P<secret>.*)', array('ApiKeyController', 
 // Create an API Key
 Router::addRoute('^/api-key/$', array('ApiKeyController', 'requestKey'));
 
+
 /**
  * Dynamic routes last, most specific to least specific
  */
+
+// The important stuff: Structures and Laws
+Router::addRoute('^/(?P<section_number>[0-9A-Za-z\.]{1,4}-[0-9\.:]{1,10})/$',
+	'law.php');
+
+Router::addRoute('^/(?P<section>(([0-9A-Za-z\.]{1,8})/)+)$',
+	'structure.php');
