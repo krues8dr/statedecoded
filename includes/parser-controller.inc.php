@@ -119,7 +119,7 @@ class ParserController
 				WHERE meta_key = "history" OR meta_key = "repealed"';
 		$result = $this->db->exec($sql);
 	}
-	
+
 	public function prune_views()
 	{
 		$sql = 'DELETE FROM
@@ -211,7 +211,7 @@ class ParserController
 				 */
 				$parser->history = $law->history;
 				$history = $parser->extract_history();
-				
+
 				if ($history !== FALSE)
 				{
 
@@ -304,6 +304,35 @@ class ParserController
 		$this->logger->message('Done', 5);
 	}
 
+	/**
+	 * Build the permalinks
+	 */
+	public function build_permalinks() {
+		$this->logger->message('Building Permalinks', 5);
+
+		/*
+		 * Create a new instance of Parser.
+		 */
+		$parser = new Parser(
+			array(
+				/*
+				 * Tell the parser what the working directory
+				 * should be for the XML files.
+				 */
+
+				'directory' => WEB_ROOT . '/admin/xml/',
+
+				/*
+				 * Set the database
+				 */
+
+				'db' => $this->db
+			)
+		);
+
+		$parser->build_permalinks();
+	}
+
 	public function write_api_key()
 	{
 
@@ -326,7 +355,7 @@ class ParserController
 			 * screen, along with instructions.
 			 */
 			$config_file = INCLUDE_PATH.'/config.inc.php';
-			
+
 			if (is_writable($config_file))
 			{
 				$config = file_get_contents($config_file);
@@ -370,12 +399,12 @@ class ParserController
 				download files could not be exported.', 10);
 			return FALSE;
 		}
-		
+
 		/*
 		 * Get a listing of all laws, to be exported in various formats.
 		 */
 		$this->logger->message('Querying laws', 3);
-		
+
 		/*
 		 * Only get section numbers. We them pass each one to the Laws class to get each law's
 		 * data.
@@ -387,12 +416,12 @@ class ParserController
 		$result = $this->db->query($sql);
 		if ($result->rowCount() > 0)
 		{
-			
+
 			/*
 			 * Establish the path of our code JSON storage directory.
 			 */
 			$json_dir = $downloads_dir . 'code-json/';
-			
+
 			/*
 			 * If the JSON directory doesn't exist, create it.
 			 */
@@ -400,7 +429,7 @@ class ParserController
 			{
 				mkdir($json_dir);
 			}
-			
+
 			/*
 			 * If we cannot write to the JSON directory, log an error.
 			 */
@@ -409,17 +438,17 @@ class ParserController
 				$this->logger->message('Cannot write to '.$json_dir.' to export files.', 10);
 				break;
 			}
-			
+
 			/*
 			 * Set a flag telling us that we may write JSON.
 			 */
 			$write_json = TRUE;
-			
+
 			/*
 			 * Establish the path of our code text storage directory.
 			 */
 			$text_dir = $downloads_dir . 'code-text/';
-			
+
 			/*
 			 * If the text directory doesn't exist, create it.
 			 */
@@ -427,7 +456,7 @@ class ParserController
 			{
 				mkdir($text_dir);
 			}
-			
+
 			/*
 			 * If we cannot write to the text directory, log an error.
 			 */
@@ -436,12 +465,12 @@ class ParserController
 				$this->logger->message('Cannot open '.$text_dir.' to export files.', 10);
 				break;
 			}
-			
+
 			/*
 			 * Set a flag telling us that we may write text.
 			 */
 			$write_text = TRUE;
-			
+
 			/*
 			 * Create a new instance of the class that handles information about individual laws.
 			 */
@@ -475,9 +504,9 @@ class ParserController
 				 * Pass the requested section number to Law.
 				 */
 				$laws->section_number = $section->number;
-				
+
 				unset($law);
-				
+
 				/*
 				 * Get a list of all of the basic information that we have about this section.
 				 */
@@ -486,9 +515,9 @@ class ParserController
 				/*
 				 * Eliminate colons from section numbers, since some OSes can't handle colons in
 				 * filenames.
-				 */		
+				 */
 				$filename = str_replace(':', '_', $law->section_number);
-				
+
 				/*
 				 * Store the JSON file.
 				 */
@@ -501,7 +530,7 @@ class ParserController
 						break;
 					}
 				}
-				
+
 				/*
 				 * Store the text file.
 				 */
@@ -514,9 +543,9 @@ class ParserController
 						break;
 					}
 				}
-				
+
 			} // end the while() law iterator
-			
+
 			/*
 			 * Zip up all of the JSON files into a single file. We do this via exec(), rather than
 			 * PHP's ZIP extension, because doing it within PHP requires far too much memory. Using
@@ -528,7 +557,7 @@ class ParserController
 				$output = array();
 				exec('cd '.$downloads_dir.'; zip -9rq code.json.zip code-json');
 			}
-			
+
 			/*
 			 * Zip up all of the text into a single file.
 			 */
@@ -538,7 +567,7 @@ class ParserController
 				$output = array();
 				exec('cd '.$downloads_dir.'; zip -9rq code.txt.zip code-text');
 			}
-			
+
 		}
 
 
@@ -555,7 +584,7 @@ class ParserController
 		$result = $this->db->query($sql);
 		if ($result->rowCount() > 0)
 		{
-		
+
 			/*
 			 * Retrieve the entire dictionary as a single object.
 			 */
@@ -583,7 +612,7 @@ class ParserController
 			{
 				$this->logger->message('Cannot open ' . $filename . ' to create a new ZIP file.', 10);
 			}
-			
+
 			else
 			{
 
@@ -596,7 +625,7 @@ class ParserController
 				 * Close out our ZIP file.
 				 */
 				$zip->close();
-				
+
 			}
 		}
 
@@ -605,7 +634,7 @@ class ParserController
 
 	public function clear_apc()
 	{
-	
+
 		/*
 		 * If APC exists on this server, clear everything in the user space. That consists of information
 		 * that the State Decoded has stored in APC, which is now suspect, as a result of having reloaded

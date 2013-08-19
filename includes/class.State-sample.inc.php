@@ -26,16 +26,16 @@ class State
 	 */
 	/*official_url()
 	{
-	
+
 		if (!isset($this->section_number))
 		{
 			return FALSE;
 		}
-		
+
 		return 'http://example.gov/laws/' . $this->section_number . '/';
-		
+
 	}*/
-	
+
 	/**
 	 * Render the often-confusing history text for a law as plain English.
 	 *
@@ -43,34 +43,34 @@ class State
 	 */
 	/*function translate_history()
 	{
-		
+
 	}
 	*/
-	
+
 	/**
 	 * Generate one or more citations for a law
-	 * 
+	 *
 	 * Should create an object named "citation" (singular) with one numbered entry for each citation
 	 * style, with values of "label" and "text," the label describing the type of citation (e.g.
 	 * "Official," "Universal") and the text being the citation itself.
-	 * 
+	 *
 	 * @return true or false
 	 */
 	/*function citations()
 	{
-	
+
 		if (!isset($this->section_number))
 		{
 			return FALSE;
 		}
-		
+
 		$this->citation->{0}->label = 'Official';
 		$this->citation->{0}->text = 'St. Code § '.$this->section_number;
-		
+
 		return TRUE;
 	}
 	*/
-	
+
 }
 
 
@@ -135,12 +135,12 @@ class Parser
 			 * Operate on the present file.
 			 */
 			$filename = $this->files[$i];
-			
+
 			/*
 			 * Store the contents of the file as a string.
 			 */
 			$xml = file_get_contents($filename);
-			
+
 			/*
 			 * Convert the XML into an object.
 			 */
@@ -169,7 +169,7 @@ class Parser
 				}
 				$this->section = new SimpleXMLElement($xml);
 			}
-			
+
 			/*
 			 * Increment our placeholder counter.
 			 */
@@ -207,7 +207,7 @@ class Parser
 		$this->code->section_number = (string) $this->section->section_number;
 		$this->code->order_by = (string) $this->section->order_by;
 		$this->code->history = (string)  $this->section->history;
-		
+
 		/*
 		 * If additional metadata is present in a "metadata" container, copy it over to our code
 		 * object.
@@ -216,7 +216,7 @@ class Parser
 		{
 			foreach ($this->section->metadata as $key => $value)
 			{
-				
+
 				/*
 				 * Convert true/false values to y/n values.
 				 */
@@ -228,7 +228,7 @@ class Parser
 				{
 					$value = 'n';
 				}
-				
+
 				$this->code->metadata->$key = $value;
 			}
 		}
@@ -269,9 +269,9 @@ class Parser
 			 */
 			foreach ($section as $subsection)
 			{
-				
+
 				$this->code->section->{$this->i}->text = trim((string) $subsection);
-				
+
 				/*
 				 * If this subsection has text, save it. Some subsections will not have text, such
 				 * as those that are purely structural, existing to hold sub-subsections, but
@@ -314,9 +314,212 @@ class Parser
 			}
 		}
 
+		$this->build_permalinks();
+
 		return TRUE;
 	}
 
+	/**
+	 * Create permalinks from what's in the database
+	 */
+	public function build_permalinks() {
+		$this->move_old_permalinks();
+		$this->build_permalink_subsections();
+	}
+
+	/*
+	 * Remove all old permalinks
+	 */
+	// TODO: eventually, we'll want to keep these and have multiple versions.
+	// See issues #314 #362 #363
+
+	public function move_old_permalinks() {
+
+		$sql = 'DELETE FROM permalinks';
+		$result = $this->db->exec($sql);
+		if ($result === FALSE)
+		{
+			echo '<p>'.$sql.'</p>';
+			echo '<p>'.$result->getMessage().'</p>';
+			return;
+		}
+	}
+
+	/**
+	 * Recurse through all subsections to build permalink data.
+	 */
+	public function build_permalink_subsections($parent_id = null) {
+		print 'build_permalink_subsections';
+
+		$structure_sql = 'SELECT structure_unified.*
+			FROM structure
+			LEFT JOIN structure_unified
+				ON structure.id = structure_unified.s1_id';
+
+		/*
+		 * We use prepared statements for efficiency.  As a result,
+		 * we need to keep an array of our arguments rather than
+		 * hardcoding them in the SQL.
+		 */
+		$structure_args = array();
+
+		if (isset($parent_id))
+		{
+			$structure_sql .= ' WHERE parent_id = :parent_id';
+			$structure_args[':parent_id'] = $parent_id;
+		}
+		else
+		{
+			$structure_sql .= ' WHERE parent_id IS NULL';
+		}
+
+		if (INCLUDES_REPEALED === TRUE)
+		{
+			$structure_sql .= ' AND
+					(SELECT COUNT(*)
+					FROM laws
+					LEFT OUTER JOIN laws_meta
+						ON laws.id = laws_meta.law_id AND laws_meta.meta_key = "repealed"
+					WHERE laws.structure_id=structure_unified.s1_id
+					AND ((laws_meta.meta_value = "n") OR laws_meta.meta_value IS NULL)  ) > 0';
+		}
+
+		$structure_statement = $this->db->prepare($structure_sql, array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY));
+		$structure_result = $structure_statement->execute($structure_args);
+
+		if ($structure_result === FALSE)
+		{
+			echo '<p>'.$structure_sql.'</p>';
+			echo '<p>'.$structure_result->getMessage().'</p>';
+			return;
+		}
+
+		/*
+		 * Get results as an array to save memory
+		 */
+		while ($item = $structure_statement->fetch(PDO::FETCH_ASSOC))
+		{
+			/*
+			 * Figure out the URL for this structural unit by iterating through the "identifier"
+			 * columns in this row.
+			 */
+			$identifier_parts = array();
+
+			foreach ($item as $key => $value)
+			{
+				if (preg_match('/s[0-9]_identifier/', $key) == 1)
+				{
+					/*
+					 * Higher-level structural elements (e.g., titles) will have blank columns in
+					 * structure_unified, so we want to omit any blank values. Because a valid
+					 * structural unit identifier is "0" (Virginia does this), we check the string
+					 * length, rather than using empty().
+					 */
+					if (strlen($value) > 0)
+					{
+						$identifier_parts[] = urlencode($value);
+					}
+				}
+			}
+			$identifier_parts = array_reverse($identifier_parts);
+			$token = implode('/', $identifier_parts);
+			$url = '/'.$token.'/';
+
+			/*
+			 * Insert the structure
+			 */
+			$insert_sql = 'INSERT INTO permalinks SET
+				object_type = :object_type,
+				relational_id = :relational_id,
+				identifier = :identifier,
+				token = :token,
+				url = :url';
+			$insert_statement = $this->db->prepare($insert_sql);
+			$insert_data = array(
+				':object_type' => 'section',
+				':relational_id' => $item['s1_id'],
+				':identifier' => $item['s1_identifier'],
+				':token' => $token,
+				':url' => $url,
+			);
+
+			$insert_result = $insert_statement->execute($insert_data);
+			if ($insert_result === FALSE)
+			{
+				echo '<p>'.$sql.'</p>';
+				echo '<p>'.$structure_result->getMessage().'</p>';
+				return;
+			}
+
+			/*
+			 * Now we can use our data to build the child law identifiers
+			 */
+
+			if (INCLUDES_REPEALED !== TRUE)
+			{
+				$laws_sql = 'SELECT id, structure_id, section AS section_number, catch_line
+						FROM laws
+						WHERE structure_id = :s_id
+						ORDER BY order_by, section';
+			}
+			else
+			{
+				$laws_sql = 'SELECT laws.id, laws.structure_id, laws.section AS section_number, laws.catch_line
+						FROM laws
+						LEFT OUTER JOIN laws_meta
+						ON laws_meta.law_id = laws.id AND laws_meta.meta_key = "repealed"
+						WHERE structure_id = :s_id
+						AND (laws_meta.meta_value = "n" OR laws_meta.meta_value IS NULL)
+						ORDER BY order_by, section';
+			}
+			$laws_statement = $this->db->prepare($laws_sql, array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY));
+			$laws_result = $laws_statement->execute( array( ':s_id' => $item['s1_id'] ) );
+
+			if ($structure_result === FALSE)
+			{
+				echo '<p>'.$laws_sql.'</p>';
+				echo '<p>'.$laws_result->getMessage().'</p>';
+				return;
+			}
+
+
+			while($law = $laws_statement->fetch(PDO::FETCH_ASSOC))
+			{
+				$law_token = $law['section_number'];
+				$law_url = '/' . $law['section_number'] . '/';
+				/*
+				 * Insert the structure
+				 */
+				$insert_sql = 'INSERT INTO permalinks SET
+					object_type = :object_type,
+					relational_id = :relational_id,
+					identifier = :identifier,
+					token = :token,
+					url = :url';
+				$insert_statement = $this->db->prepare($insert_sql);
+				$insert_data = array(
+					':object_type' => 'law',
+					':relational_id' => $law['id'],
+					':identifier' => $law['section_number'],
+					':token' => $law_token,
+					':url' => $law_url,
+				);
+
+				$insert_result = $insert_statement->execute($insert_data);
+
+				if ($insert_result === FALSE)
+				{
+					echo '<p>'.$insert_sql.'</p>';
+					echo '<p>'.$insert_result->getMessage().'</p>';
+					return;
+				}
+			}
+
+
+
+			$this->build_permalink_subsections($item['s1_id']);
+		}
+	}
 
 	/**
 	 * Recurse through subsections of arbitrary depth. Subsections can be nested quite deeply, so
@@ -373,16 +576,16 @@ class Parser
 			 * Reduce the prefix hierarchy back to where it started, for our next loop through.
 			 */
 			$this->prefix_hierarchy = array_slice($this->prefix_hierarchy, 0, ($this->depth));
-			
+
 			/*
 			 * Reset the prefix depth back to its default of 1.
 			 */
 			$this->depth = 1;
-			
+
 		}
-		
+
 		return TRUE;
-		
+
 	}
 
 
@@ -395,7 +598,7 @@ class Parser
 		{
 			die('No data provided.');
 		}
-		
+
 		// This first section creates the record for the law, but doesn't do anything with the
 		// content of it just yet.
 
@@ -473,11 +676,11 @@ class Parser
 					stored.</p>';
 			}
 		}
-		
+
 		// Store any metadata.
 		if (isset($this->code->metadata))
 		{
-			
+
 			// Step through every metadata field and add it.
 			foreach ($this->code->metadata as $key => $value)
 			{
@@ -485,7 +688,7 @@ class Parser
 						SET law_id = ' . $law_id . ',
 						meta_key = ' . $this->db->quote($key) . ',
 						meta_value = ' . $this->db->quote($value);
-				
+
 				// Execute the query.
 				$result = $this->db->exec($sql);
 				if ($result === FALSE)
@@ -494,7 +697,7 @@ class Parser
 					die($result->getMessage());
 				}
 			}
-			
+
 		}
 
 		// Step through each section.
@@ -543,7 +746,7 @@ class Parser
 							identifier=' . $this->db->quote($prefix) . ',
 							sequence='.$j.',
 							date_created=now()';
-	
+
 					// Execute the query.
 					$result = $this->db->exec($sql);
 					if ($result === FALSE)
@@ -551,7 +754,7 @@ class Parser
 						echo '<p>'.$sql.'</p>';
 						die($result->getMessage());
 					}
-	
+
 					$j++;
 				}
 			}
@@ -559,16 +762,16 @@ class Parser
 			$i++;
 		}
 
-		
+
 		// Trawl through the text for definitions.
 		$dictionary = new Parser(array('db' => $this->db));
-		
+
 		// Pass this section of text to $dictionary.
 		$dictionary->text = $this->code->text;
-		
+
 		// Get a normalized listing of definitions.
 		$definitions = $dictionary->extract_definitions();
-		
+
 		// Check to see if this section or its containing structural unit were specified in the
 		// config file as a container for global definitions. If it was, then we override the
 		// presumed scope and provide a global scope.
@@ -592,17 +795,17 @@ class Parser
 		}
 		unset($ancestry);
 		unset($ancestry_section);
-		
+
 		// If any definitions were found in this text, store them.
 		if ($definitions !== FALSE)
 		{
-			
+
 			// Populate the appropriate variables.
 			$dictionary->terms = $definitions->terms;
 			$dictionary->law_id = $law_id;
 			$dictionary->scope = $definitions->scope;
 			$dictionary->structure_id = $this->code->structure_id;
-			
+
 			// If the scope of this definition isn't section-specific, and isn't global, then
 			// find the ID of the structural unit that is the limit of its scope.
 			if ( ($dictionary->scope != 'section') && ($dictionary->scope != 'global') )
@@ -616,21 +819,21 @@ class Parser
 					unset($dictionary->structure_id);
 				}
 			}
-			
+
 			// If the scope isn't a structural unit, then delete it, so that we don't store it
 			// and inadvertently limit the scope.
 			else
 			{
 				unset($dictionary->structure_id);
 			}
-			
+
 			// Determine the position of this structural unit.
 			$structure = array_reverse(explode(',', STRUCTURE));
 			array_push($structure, 'global');
-			
+
 			// Find and return the position of this structural unit in the hierarchical stack.
 			$dictionary->scope_specificity = array_search($dictionary->scope, $structure);
-			
+
 			// Store these definitions in the database.
 			$dictionary->store_definitions();
 		}
@@ -661,7 +864,7 @@ class Parser
 		$sql = 'SELECT id
 				FROM structure
 				WHERE identifier="'.$this->identifier.'"';
-				
+
 		// If a parent ID is present (that is, if this structural unit isn't a top-level unit), then
 		// include that in our query.
 		if ( !empty($this->parent_id) )
@@ -830,7 +1033,7 @@ class Parser
 		{
 			return FALSE;
 		}
-			
+
 		/*
 		 * The candidate phrases that indicate that the scope of one or more definitions are about
 		 * to be provided.
@@ -841,7 +1044,7 @@ class Parser
 									' for the purpose of this ',
 									' in this ',
 								);
-		
+
 		/*
 		 * Create a list of every phrase that can be used to link a term to its defintion, e.g.,
 		 * "'People' has the same meaning as 'persons.'" When appropriate, pad these terms with
@@ -855,7 +1058,7 @@ class Parser
 									' shall be construed ',
 									' shall also be construed to mean ',
 								);
-		
+
 		/* Measure whether there are more straight quotes or directional quotes in this passage
 		 * of text, to determine which type are used in these definitions. We double the count of
 		 * directional quotes since we're only counting one of the two directions.
@@ -870,7 +1073,7 @@ class Parser
 			$quote_type = 'directional';
 			$quote_sample = '”';
 		}
-		
+
 		/*
 		 * Break up this section into paragraphs. If HTML paragraph tags are present, break it up
 		 * with those. If they're not, break it up with carriage returns.
@@ -884,12 +1087,12 @@ class Parser
 			$this->text = str_replace("\n", "\r", $this->text);
 			$paragraphs = explode("\r", $this->text);
 		}
-		
+
 		/*
 		 * Create the empty array that we'll build up with the definitions found in this section.
 		 */
 		$definitions = array();
-		
+
 		/*
 		 * Step through each paragraph and determine which contain definitions.
 		 */
@@ -901,18 +1104,18 @@ class Parser
 			 * and can be turned into spaces.
 			 */
 			$paragraph = str_replace('</p><p>', ' ', $paragraph);
-			
+
 			/*
 			 * Strip out any remaining HTML.
 			 */
 			$paragraph = strip_tags($paragraph);
-			
+
 			/*
 			 * Calculate the scope of these definitions using the first line.
 			 */
 			if (reset($paragraphs) == $paragraph)
 			{
-			
+
 				/*
 				 * Gather up a list of structural labels is, and determine the length of the longest
 				 * one, which we'll use to narrow the scope of our search for the use of structural
@@ -921,18 +1124,18 @@ class Parser
 				$structure_labels = explode(',', STRUCTURE);
 				usort($structure_labels, 'sort_by_length');
 				$longest_label = strlen(current($structure_labels));
-				
+
 				/*
 				 * Iterate through every scope indicator.
 				 */
 				foreach ($scope_indicators as $scope_indicator)
 				{
-					
+
 					/*
 					 * See if the scope indicator is present in this paragraph.
 					 */
 					$pos = stripos($paragraph, $scope_indicator);
-					
+
 					/*
 					 * The term was found.
 					 */
@@ -944,7 +1147,7 @@ class Parser
 						 * longest structural label.
 						 */
 						$phrase = substr( $paragraph, ($pos + strlen($scope_indicator)), $longest_label );
-						
+
 						/*
 						 * Iterate through the structural labels and check each one to see if it's
 						 * present in the phrase that we're examining.
@@ -953,20 +1156,20 @@ class Parser
 						{
 							if (stripos($phrase, $structure_label) !== FALSE)
 							{
-								
+
 								/*
 								 * We've made a match -- we've successfully identified the scope of
 								 * these definitions.
 								 */
 								$scope = $structure_label;
-								
+
 								/*
 								 * Now that we have a match, we can break out of both the containing
 								 * foreach() and its parent foreach().
 								 */
 								break(2);
 							}
-							
+
 							/*
 							 * If we can't calculate scope, then let’s assume that it's specific to
 							 * the most basic structural unit -- the individual law -- for the sake
@@ -976,21 +1179,21 @@ class Parser
 						}
 					}
 				}
-				
+
 				/*
 				 * That's all we're going to get out of this paragraph, so move onto the next one.
 				 */
 				continue;
-				
+
 			}
-			
+
 			/*
 			 * All defined terms are surrounded by quotation marks, so let's use that as a criteria
 			 * to round down our candidate paragraphs.
 			 */
 			if (strpos($paragraph, $quote_sample) !== FALSE)
 			{
-				
+
 				/*
 				 * Iterate through every linking phrase and see if it's present in this paragraph.
 				 * We need to find the right one that will allow us to connect a term to its
@@ -998,23 +1201,23 @@ class Parser
 				 */
 				foreach ($linking_phrases as $linking_phrase)
 				{
-				
+
 					if (strpos($paragraph, $linking_phrase) !== FALSE)
 					{
-					
+
 						/*
 						 * Extract every word in quotation marks in this paragraph as a term that's
 						 * being defined here. Most definitions will have just one term being
 						 * defined, but some will have two or more.
 						 */
 						preg_match_all('/("|“)([A-Za-z]{1})([A-Za-z,\'\s-]*)([A-Za-z]{1})("|”)/', $paragraph, $terms);
-						
+
 						/*
 						 * If we've made any matches.
 						 */
 						if ( ($terms !== FALSE) && (count($terms) > 0) )
 						{
-							
+
 							/*
 							 * We only need the first element in this multi-dimensional array, which
 							 * has the actual matched term. It includes the quotation marks in which
@@ -1029,12 +1232,12 @@ class Parser
 								$terms = str_replace('“', '', $terms[0]);
 								$terms = str_replace('”', '', $terms);
 							}
-							
+
 							/*
 							 * Eliminate whitespace.
 							 */
 							$terms = array_map('trim', $terms);
-							
+
 							/* Lowercase most (but not necessarily all) terms. Any term that
 							 * contains any lowercase characters will be made entirely lowercase.
 							 * But any term that is in all caps is surely an acronym, and should be
@@ -1054,7 +1257,7 @@ class Parser
 									unset($term);
 									continue;
 								}
-							
+
 								/*
 								 * Step through each character in this word.
 								 */
@@ -1071,7 +1274,7 @@ class Parser
 									}
 								}
 							}
-							
+
 							/*
 							 * This is absolutely necessary. Without it, the following foreach()
 							 * loop will simply use $term as-is through each loop, rather than
@@ -1080,14 +1283,14 @@ class Parser
 							 * sense.
 							 */
 							unset($term);
-							
+
 							/*
 							 * Step through all of our matches and save them as discrete
 							 * definitions.
 							 */
 							foreach ($terms as $term)
 							{
-								
+
 								/*
 								 * It's possible for a definition to be preceded by a subsection
 								 * number. We want to pare down our definition down to the minimum,
@@ -1102,7 +1305,7 @@ class Parser
 								{
 									$paragraph = substr($paragraph, strpos($paragraph, '“'));
 								}
-								
+
 								/*
 								 * Comma-separated lists of multiple words being defined need to
 								 * have the trailing commas removed.
@@ -1111,7 +1314,7 @@ class Parser
 								{
 									$term = substr($term, 0, -1);
 								}
-								
+
 								/*
 								 * If we don't yet have a record of this term.
 								 */
@@ -1122,7 +1325,7 @@ class Parser
 									 */
 									$definitions[$term] = $paragraph;
 								}
-								
+
 								/* If we already have a record of this term. This is for when a word
 								 * is defined twice, once to indicate what it means, and one to list
 								 * what it doesn't mean. This is actually pretty common.
@@ -1144,17 +1347,17 @@ class Parser
 								}
 							} // end iterating through matches
 						} // end dealing with matches
-						
+
 						/*
 						 * Because we have identified the linking phrase for this paragraph, we no
 						 * longer need to continue to iterate through linking phrases.
 						 */
 						break;
-						
+
 					} // end matched linking phrase
 				} // end iterating through linking phrases
 			} // end this candidate paragraph
-			
+
 			/*
 			 * We don't want to accidentally use this the next time we loop through.
 			 */
@@ -1165,7 +1368,7 @@ class Parser
 		{
 			return FALSE;
 		}
-		
+
 		/*
 		 * Make the list of definitions a subset of a larger variable, so that we can store things
 		 * other than terms.
@@ -1175,7 +1378,7 @@ class Parser
 		$tmp['scope'] = $scope;
 		$definitions = $tmp;
 		unset($tmp);
-			
+
 		/*
 		 * Return our list of definitions, converted from an array to an object.
 		 */
@@ -1414,12 +1617,12 @@ class Parser
 			}
 			$i++;
 		}
-		
+
 		if ( isset($final) && is_object($final) )
 		{
 			return $final;
 		}
-		
+
 	} // end extract_history()
 
 } // end Parser class
