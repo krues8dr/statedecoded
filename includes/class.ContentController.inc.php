@@ -7,16 +7,15 @@
  * 
  * PHP version 5
  *
- * @author		Bill Hunt <bill at krues8dr dot com>
- * @copyright	2013 Bill Hunt
  * @license		http://www.gnu.org/licenses/gpl.html GPL 3
- * @version		0.8
+ * @version		0.9
  * @link		http://www.statedecoded.com/
  * @since		0.8
  */
 
 class ContentController extends BaseController
 {
+
 	/**
 	 * ContentController::default()
 	 *
@@ -24,12 +23,14 @@ class ContentController extends BaseController
 	 */
 	public function notFound($args)
 	{
+	
 		$body = '<h1>Content Not Found</h1>
 			<p>We were unable to find the content you requested.</p>';
 	
 		$this->setContent('body', $body);
 		
 		return $this->renderContent();
+		
 	}
 	
 	/**
@@ -39,6 +40,7 @@ class ContentController extends BaseController
 	 */
 	public function index($args)
 	{
+	
 		$this->setContent('browser_title', SITE_TITLE.': The '.LAWS_NAME.', for Humans.');
 
 		/*
@@ -86,6 +88,7 @@ class ContentController extends BaseController
 		unset($body);
 		
 		return $this->renderContent();
+		
 	} /* index() */
 	
 	/**
@@ -95,11 +98,14 @@ class ContentController extends BaseController
 	 */
 	public function about($args)
 	{
+	
 		$this->setContent('browser_title', 'About');
 		$this->setContent('page_title', 'About');
 		$this->setContent('body', '');
 		$this->setContent('sidebar', '');
 		
 		return $this->renderContent();
+		
 	}
+	
 }

@@ -5,10 +5,8 @@
  *
  * PHP version 5
  *
- * @author		Waldo Jaquith <waldo at jaquith.org>
- * @copyright	2010-2013 Waldo Jaquith
  * @license		http://www.gnu.org/licenses/gpl.html GPL 3
- * @version		0.6
+ * @version		0.9
  * @link		http://www.statedecoded.com/
  * @since		0.1
  *
@@ -16,18 +14,30 @@
 
 class Law
 {
+	protected $db;
 
-	/**
-	 * Retrieve all of the material relevant to a given law.
-	 */
-	function get_law()
+	public function __construct($args = array())
 	{
+		foreach($args as $key=>$value)
+		{
+			$this->$key = $value;
+		}
 
 		/*
 		 * We're going to need access to the database connection throughout this class.
 		 */
-		global $db;
+		if(!isset($this->db))
+		{
+			global $db;
+			$this->db = $db;
+		}
+	}
 
+	/**
+	 * Retrieve all of the material relevant to a given law.
+	 */
+	public function get_law()
+	{
 		/*
 		 * If neither a section number nor a law ID has been passed to this function, then there's
 		 * nothing to do.
@@ -40,8 +50,9 @@ class Law
 		/*
 		 * If we haven't specified which fields that we want, then assume that we want all of them.
 		 */
-		if (!isset($this->config->get_all))
+		if (!isset($this->config) || !is_object($this->config) )
 		{
+			$this->config = new StdClass();
 			$this->config->get_all = TRUE;
 		}
 
@@ -49,7 +60,7 @@ class Law
 		 * Define the level of detail that we want from this method. By default, we return
 		 * everything that we have for this law.
 		 */
-		if ( !isset($this->config) || ($this->config->get_all == TRUE) )
+		if ( !isset($this->config) || ( (isset($this->config->get_all)) && ($this->config->get_all == TRUE) ) )
 		{
 			$this->config->get_text = TRUE;
 			$this->config->get_structure = TRUE;
@@ -57,16 +68,18 @@ class Law
 			$this->config->get_court_decisions = TRUE;
 			$this->config->get_metadata = TRUE;
 			$this->config->get_references = TRUE;
-			$this->config->get_related_laws = TRUE;
+			$this->config->get_tags = TRUE;
 			$this->config->render_html = TRUE;
 		}
 
 		/*
 		 * Assemble the query that we'll use to get this law.
 		 */
-		$sql = 'SELECT id AS section_id, structure_id, section AS section_number, catch_line,
-				history, text AS full_text
+		$sql = 'SELECT id AS section_id, structure_id, edition_id,
+				section AS section_number, catch_line,
+				history, text AS full_text, order_by
 				FROM laws';
+		$sql_args = array();
 
 		/*
 		 * If we're requesting a specific law by ID.
@@ -78,7 +91,8 @@ class Law
 			 */
 			if (!is_array($this->law_id))
 			{
-				$sql .= ' WHERE id=' . $db->quote($this->law_id);
+				$sql .= ' WHERE id = :id';
+				$sql_args[':id'] = $this->law_id;
 			}
 
 			/*
@@ -91,15 +105,17 @@ class Law
 				/*
 				 * Step through the list.
 				 */
-				foreach ($this->law_id as $id)
+				$law_count = count($this->law_id);
+				for($i = 0; $i < $law_count; $i++)
 				{
-					$sql .= ' id=' . $db->quote($id);
-					if (end($this->law_id) != $id)
+					$sql .= " id = :id$i";
+					$sql_args[":id$i"] = $this->law_id[$i];
+
+					if ($i < ($law_count - 1))
 					{
 						$sql .= ' OR';
 					}
 				}
-
 				$sql .= ')';
 			}
 		}
@@ -110,13 +126,24 @@ class Law
 		 */
 		else
 		{
-			$sql .= ' WHERE section=' . $db->quote($this->section_number) . '
-					AND edition_id=' . EDITION_ID;
+			$sql .= ' WHERE section = :section_number
+					AND edition_id = :edition_id';
+			$sql_args[':section_number'] = $this->section_number;
+
+			if(isset($this->edition_id))
+			{
+				$sql_args[':edition_id'] = $this->edition_id;
+			}
+			else
+			{
+				$sql_args[':edition_id'] = EDITION_ID;
+			}
 		}
 
-		$result = $db->query($sql);
+		$statement = $this->db->prepare($sql);
+		$result = $statement->execute($sql_args);
 
-		if ( ($result === FALSE) || ($result->rowCount() == 0) )
+		if ( ($result === FALSE) || ($statement->rowCount() == 0) )
 		{
 			return FALSE;
 		}
@@ -124,7 +151,7 @@ class Law
 		/*
 		 * Return the result as an object.
 		 */
-		$tmp = $result->fetch(PDO::FETCH_OBJ);
+		$tmp = $statement->fetch(PDO::FETCH_OBJ);
 
 		/*
 		 * Bring this law into the object scope.
@@ -163,16 +190,20 @@ class Law
 						WHERE text_id=text.id
 						GROUP BY text_id) AS prefixes
 					FROM text
-					WHERE law_id='.$db->quote($this->section_id).'
+					WHERE law_id = :law_id
 					ORDER BY text.sequence ASC';
+			$sql_args = array(
+				':law_id' => $this->section_id
+			);
 
-			$result = $db->query($sql);
+			$statement = $this->db->prepare($sql);
+			$result = $statement->execute($sql_args);
 
 			/*
 			 * If the query fails, or if no results are found, return false -- we can't make a
 			 * match.
 			 */
-			if ( ($result === FALSE) || ($result->rowCount() == 0) )
+			if ( ($result === FALSE) || ($statement->rowCount() == 0) )
 			{
 				return FALSE;
 			}
@@ -181,7 +212,7 @@ class Law
 			 * Iterate through all of the sections of text to save to our object.
 			 */
 			$i=0;
-			while ($tmp = $result->fetch(PDO::FETCH_OBJ))
+			while ($tmp = $statement->fetch(PDO::FETCH_OBJ))
 			{
 
 				$tmp->prefixes = explode('|', $tmp->prefixes);
@@ -202,6 +233,10 @@ class Law
 				/*
 				 * Append this section.
 				 */
+				if (!isset($this->text))
+				{
+					$this->text = new StdClass();
+				}
 				$this->text->$i = $tmp;
 				$i++;
 
@@ -211,13 +246,25 @@ class Law
 		/*
 		 * Determine this law's structural position.
 		 */
-		if ($this->config->get_structure == TRUE)
+		if ($this->config->get_structure = TRUE)
 		{
 
 			/*
 			 * Create a new instance of the Structure class.
 			 */
 			$struct = new Structure;
+
+			/*
+			 * Provide the edition ID so that we know which edition to query.
+			 */
+			if (isset($this->edition_id))
+			{
+				$struct->edition_id = $this->edition_id;
+			}
+			else
+			{
+				$struct->edition_id = EDITION_ID;
+			}
 
 			/*
 			 * Our structure ID provides a starting point to identify this law's ancestry.
@@ -285,16 +332,28 @@ class Law
 		}
 
 		/*
-		 * Extract every year named in the history.
+		 * Gather any tags applied to this law.
 		 */
-		preg_match_all('/(18|19|20)([0-9]{2})/', $this->history, $years);
-		if (count($years[0]) > 0)
+		if ( isset($this->config->get_tags) && ($this->config->get_tags == TRUE) )
 		{
-			$i=0;
-			foreach ($years[0] as $year)
+			$sql = 'SELECT text
+					FROM tags
+					WHERE law_id = ' . $this->db->quote($this->section_id);
+
+			$result = $this->db->query($sql);
+
+			if ( ($result !== TRUE) && ($result->rowCount() > 0) )
 			{
-				$this->amendment_years->$i = $year;
-				$i++;
+
+				$this->tags = new stdClass();
+
+				$i = 0;
+				while ($tag = $result->fetch(PDO::FETCH_OBJ))
+				{
+					$this->tags->{$i} = $tag->text;
+					$i++;
+				}
+
 			}
 		}
 
@@ -313,23 +372,57 @@ class Law
 		 */
 		if ($this->config->get_amendment_attempts == TRUE)
 		{
+
 			if (method_exists($state, 'get_amendment_attempts'))
 			{
-				$this->amendment_attempts = $state->get_amendment_attempts();
+				if ($state->get_amendment_attempts() !== FALSE)
+				{
+					$this->amendment_attempts = $state->bills;
+				}
 			}
+
 		}
 
 		/*
-		 * Get the amendment attempts for this law and include those (if there are any). But
+		 * Get the court decisions that affect this law and include those (if there are any). But
 		 * only if we have specifically requested this data. That's because, on most installations,
 		 * this will be making a call to a third-party service and such a call is expensive.
 		 */
 		if ($this->config->get_court_decisions == TRUE)
 		{
-			if (method_exists($state, 'get_court_decisions'))
+
+			/*
+			 * If we already have this data cached as metadata, and it's not blank. (We cache not
+			 * just when there are court decisions for a given law, but also when there are no
+			 * court decisions for a law. "No court decisions" is represented as an empty record.)
+			 */
+			if ( isset($this->metadata->court_decisions) && !empty($this->metadata->court_decisions) )
 			{
-				$this->court_decisions = $state->get_court_decisions();
+				$this->court_decisions = $this->metadata->court_decisions;
 			}
+
+			/*
+			 * If we do not have this data cached.
+			 */
+			else
+			{
+				if (method_exists($state, 'get_court_decisions'))
+				{
+					if ($state->get_court_decisions() !== FALSE)
+					{
+						$this->court_decisions = $state->decisions;
+					}
+				}
+			}
+
+			/*
+			 * If we've cached the fact that there are no court decisions.
+			 */
+			if ( isset($this->court_decisions->{0}) && $this->court_decisions->{0} == FALSE )
+			{
+				unset($this->court_decisions);
+			}
+			
 		}
 
 		/*
@@ -358,7 +451,6 @@ class Law
 		if (method_exists($state, 'citations'))
 		{
 			$state->section_number = $this->section_number;
-			$state->amendment_years = $this->amendment_years;
 			$state->citations();
 			$this->citation = $state->citation;
 		}
@@ -369,6 +461,7 @@ class Law
 		if ($this->config->get_references == TRUE)
 		{
 			$this->references = Law::get_references();
+			$this->refers_to = Law::get_references(true);
 		}
 
 		/*
@@ -379,9 +472,37 @@ class Law
 		/*
 		 * Provide the URL for this section.
 		 */
-		$this->url = 'http://' . $_SERVER['SERVER_NAME']
-			. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
-			. '/' . $this->section_number . '/';
+		$sql = 'SELECT url, token
+				FROM permalinks
+				WHERE relational_id = :id
+				AND object_type = :object_type';
+		$statement = $this->db->prepare($sql);
+
+		$sql_args = array(
+			':id' => $this->section_id,
+			':object_type' => 'law'
+		);
+
+		$result = $statement->execute($sql_args);
+
+		if ( ($result !== FALSE) && ($statement->rowCount() > 0) )
+		{
+			$permalink = $statement->fetch(PDO::FETCH_OBJ);
+			$this->url = $permalink->url;
+			$this->token = $permalink->token;
+		}
+
+		/*
+		 * List the URLs for the textual formats in which this section is available.
+		 */
+		if(!isset($this->formats))
+		{
+			$this->formats = new StdClass();
+		}
+
+		$this->formats->txt = substr($this->url, 0, -1) . '.txt';
+		$this->formats->json = substr($this->url, 0, -1) . '.json';
+		$this->formats->xml = substr($this->url, 0, -1) . '.xml';
 
 		/*
 		 * Create metadata in the Dublin Core format.
@@ -429,14 +550,11 @@ class Law
 
 	/**
 	 * Return a listing of every section of the code that refers to a given section.
+	 * If $to is true, returns laws the current law references.
+	 * If $to is fales, returns laws that reference the current law.
 	 */
-	function get_references()
+	public function get_references($to = false)
 	{
-
-		/*
-		 * We're going to need access to the database connection throughout this class.
-		 */
-		global $db;
 
 		/*
 		 * If a section number doesn't exist in the scope of this class, then there's nothing to do.
@@ -449,57 +567,136 @@ class Law
 		/*
 		 * Get a listing of IDs, section numbers, and catch lines.
 		 */
-		$sql = 'SELECT DISTINCT laws.id, laws.section AS section_number, laws.catch_line
-				FROM laws
-				INNER JOIN laws_references
-					ON laws.id = laws_references.law_id
-				WHERE laws_references.target_law_id =  '.$db->quote($this->section_id).'
-				ORDER BY laws.order_by, laws.section ASC';
-
+		$sql = 'SELECT DISTINCT laws.id, laws.section AS section_number,
+			laws.catch_line FROM laws ';
+		if($to)
+		{
+			$sql .= 'INNER JOIN laws_references
+				ON laws.id = laws_references.target_law_id
+				WHERE laws_references.law_id =  :law_id ';
+		}
+		else
+		{
+			$sql .= 'INNER JOIN laws_references
+				ON laws.id = laws_references.law_id
+				WHERE laws_references.target_law_id =  :law_id ';
+		}
+		$sql .= 'AND laws.edition_id = :edition_id
+			ORDER BY laws.order_by, laws.section ASC';
+		$sql_args = array(
+			':law_id' => $this->section_id,
+			':edition_id' => $this->edition_id
+		);
 		/*
 		 * Execute the query.
 		 */
-		$result = $db->query($sql);
+		$statement = $this->db->prepare($sql);
+		$result = $statement->execute($sql_args);
 
 		/*
 		 * If the query fails, or if no results are found, return false -- no sections refer to
 		 * this one.
 		 */
-		if ( ($result === FALSE) || ($result->rowCount() == 0) )
+		if ( ($result === FALSE) || ($statement->rowCount() == 0) )
+		{
+			return FALSE;
+		}
+
+		$permalink_obj = new Permalink(array('db' => $this->db));
+
+		$references = array();
+		while ($reference = $statement->fetch(PDO::FETCH_OBJ))
+		{
+			$reference->catch_line = stripslashes($reference->catch_line);
+
+			$permalink = $permalink_obj->get_preferred(
+				$reference->id, 'law', $this->edition_id);
+			$reference->url = $permalink->url;
+
+			$references[] = $reference;
+		}
+
+		return $references;
+
+	}
+
+	/**
+	 * Return the URL for a given law ID.
+	 *
+	 * This is meant to be invoked inline, which is why it takes a section id as a parameter and
+	 * returns a URL, rather than getting and setting those as object properties.
+	 *
+	 * By default, this will get the preferred link.
+	 *
+	 */
+	### TODO fix references to this.
+	### TODO replace the body of this with a call to Permalink.
+	public function get_url($law_id, $edition_id = null, $permalink = false)
+	{
+
+		/*
+		 * If a section number hasn't been passed to this function, then there's nothing to do.
+		 */
+		if (empty($law_id))
 		{
 			return FALSE;
 		}
 
 		/*
-		 * Return the result as an enumerated object.
+		 * Set the default edition.
 		 */
-		$references = new stdClass();
-		$i = 0;
-		while ($reference = $result->fetch(PDO::FETCH_OBJ))
+		if (empty($edition_id))
 		{
-			$reference->catch_line = stripslashes($reference->catch_line);
-			$reference->url = 'http://' . $_SERVER['SERVER_NAME']
-				. ( ($_SERVER['SERVER_PORT'] == 80) ? '' : ':' . $_SERVER['SERVER_PORT'] )
-				. '/' . $reference->section_number . '/';
-
-			$references->$i = $reference;
-			$i++;
+			$edition_obj = new Edition(array('db' => $this->db));
+			$edition = $edition_obj->current();
+			$edition_id = $edition->id;
 		}
 
-		return $references;
+		$sql = 'SELECT *
+				FROM permalinks
+				WHERE object_type="law"
+				AND relational_id = :law_id';
+
+		$sql_args = array(
+			':law_id' => $law_id
+		);
+
+		if($permalink === true)
+		{
+			$sql .= ' AND permalink = 1';
+		}
+		else {
+			$sql .= ' AND preferred = 1';
+		}
+
+		$statement = $this->db->prepare($sql);
+		$result = $statement->execute($sql_args);
+
+		if ( ($result === FALSE) || ($statement->rowCount() == 0) )
+		{
+			return FALSE;
+		}
+
+		$permalink = $statement->fetch(PDO::FETCH_OBJ);
+
+		return $permalink;
+
 	}
 
 
 	/**
 	 * Record a view of a single law.
 	 */
-	function record_view()
+	public function record_view()
 	{
 
 		/*
-		 * We're going to need access to the database connection throughout this class.
+		 * If configured not to record views, then quietly exit.
 		 */
-		global $db;
+		if ( defined('RECORD_VIEWS') && (RECORD_VIEWS === FALSE) )
+		{
+			return TRUE;
+		}
 
 		/*
 		 * If a section number doesn't exist in the scope of this class, then there's nothing to do.
@@ -513,16 +710,21 @@ class Law
 		 * Record the view.
 		 */
 		$sql = 'INSERT DELAYED INTO laws_views
-				SET section="'.$this->section_number.'"';
+				SET section = :section';
+		$sql_args = array(
+			':section' => $this->section_number
+		);
 		if (!empty($_SERVER['REMOTE_ADDR']))
 		{
-			$sql .= ', ip_address=INET_ATON("'.$_SERVER['REMOTE_ADDR'].'")';
+			$sql .= ', ip_address=INET_ATON(:ip)';
+			$sql_args[':ip'] = $_SERVER['REMOTE_ADDR'];
 		}
 
 		/*
 		 * Execute the query.
 		 */
-		$result = $db->exec($sql);
+		$statement = $this->db->prepare($sql);
+		$result = $statement->execute($sql_args);
 
 		/*
 		 * If the query fails, return false.
@@ -539,13 +741,8 @@ class Law
 	/**
 	 * Get all metadata for a single law.
 	 */
-	function get_metadata()
+	public function get_metadata()
 	{
-
-		/*
-		 * We're going to need access to the database connection throughout this class.
-		 */
-		global $db;
 
 		/*
 		 * If a section number doesn't exist in the scope of this class, then there's nothing to do.
@@ -560,14 +757,18 @@ class Law
 		 */
 		$sql = 'SELECT id, meta_key, meta_value
 				FROM laws_meta
-				WHERE law_id=' . $db->quote($this->section_id);
-		$result = $db->query($sql);
+				WHERE law_id = :law_id';
+		$sql_args = array(
+			':law_id' => $this->section_id
+		);
+		$statement = $this->db->prepare($sql);
+		$result = $statement->execute($sql_args);
 
 		/*
 		 * If the query fails, or if no results are found, return false -- no sections refer to this
 		 * one.
 		 */
-		if ( ($result === FALSE) || ($result->rowCount() == 0) )
+		if ( ($result === FALSE) || ($statement->rowCount() == 0) )
 		{
 			return FALSE;
 		}
@@ -575,7 +776,7 @@ class Law
 		/*
 		 * Return the result as an object.
 		 */
-		$metadata = $result->fetchAll(PDO::FETCH_OBJ);
+		$metadata = $statement->fetchAll(PDO::FETCH_OBJ);
 
 		/*
 		 * Create a new object, to which we will port a rotated version of this object.
@@ -589,14 +790,20 @@ class Law
 		foreach($metadata as $field)
 		{
 
-			$field->meta_value = stripslashes($field->meta_value);
-
 			/*
 			 * If unserializing this value works, then we've got serialized data here.
 			 */
 			if (@unserialize($row->meta_value) !== FALSE)
 			{
 				$field->meta_value = unserialize($field->meta_value);
+			}
+
+			/*
+			 * If JSON decoding this value works, then we've got JSON data here.
+			 */
+			if (@json_decode($row->meta_value) !== FALSE)
+			{
+				$field->meta_value = json_decode($field->meta_value);
 			}
 
 			/*
@@ -611,10 +818,63 @@ class Law
 				$field->meta_value = FALSE;
 			}
 
-			$rotated->{stripslashes($field->meta_key)} = $field->meta_value;
+			$rotated->{$field->meta_key} = $field->meta_value;
 
 		}
+
 		return $rotated;
+
+	}
+
+	/*
+	 * Store a single piece of metadata for a single law
+	 *
+	 * Must receive $this->section_id and $this->metadata. The latter is an object that that
+	 * contains a series of $key => $value pairs (at least one) that are to be stored for the law
+	 * in question.
+	 *
+	 * This method exists within Law, as opposed to within the importer, because metadata can be
+	 * stored at any time. For example, a list of court rulings affecting a given law wouldn't be
+	 * imported only when the parser is run, because a court could issue a new ruling again at any
+	 * time. Instead, that data is imported periodically, incrementally, via store_metadata.
+	 *
+	 * @param	string	$this->section_id	The ID of the law.
+	 * @param	object	$this->metadata		Key/value pairs to be stored.
+	 * @return TRUE or FALSE
+	 */
+	public function store_metadata()
+	{
+
+		if ( !isset($this->section_id) || !is_object($this->metadata) )
+		{
+			return FALSE;
+		}
+
+		$sql = 'INSERT INTO laws_meta
+				SET law_id = :law_id,
+				meta_key = :meta_key,
+				meta_value = :meta_value,
+				date_created = now()';
+		$statement = $this->db->prepare($sql);
+
+		foreach ($this->metadata as $field)
+		{
+			$sql_args = array(
+				':law_id' => $this->section_id,
+				':meta_key' => $field->key,
+				':meta_value' => $field->value
+			);
+			$result = $statement->execute($sql_args);
+
+			if ($result === FALSE)
+			{
+				return FALSE;
+			}
+
+		}
+
+		return TRUE;
+
 	}
 
 
@@ -624,13 +884,8 @@ class Law
  	 * links. But it has to verify that they're really section numbers, and not strings that
 	 * resemble section numbers, which necessitates a fast, lightweight function.
 	 */
-	function exists()
+	public function exists()
 	{
-
-		/*
-		 * We're going to need access to the database connection throughout this class.
-		 */
-		global $db;
 
 		/*
 		 * If neither a section number nor a law ID has been passed to this function, then there's
@@ -652,11 +907,25 @@ class Law
 		 */
 		$sql = 'SELECT *
 				FROM laws
-				WHERE section=' . $db->quote($this->section_number) . '
-				AND edition_id=' . EDITION_ID;
-		$result = $db->query($sql);
+				WHERE section = :section
+				AND edition_id = :edition_id';
+		$sql_args = array(
+			':section' => $this->section_number,
+		);
 
-		if ( ($result === FALSE) || ($result->rowCount() < 1) )
+		if(isset($this->edition_id))
+		{
+			$sql_args[':edition_id'] = $this->edition_id;
+		}
+		else
+		{
+			$sql_args[':edition_id'] = EDITION_ID;
+		}
+
+		$statement = $this->db->prepare($sql);
+		$result = $statement->execute($sql_args);
+
+		if ( ($result === FALSE) || ($statement->rowCount() < 1) )
 		{
 			return FALSE;
 		}
@@ -668,7 +937,7 @@ class Law
 	/**
 	 * Takes the instant law object and turns it into HTML, with embedded links, anchors, etc.
 	 */
-	function render()
+	public function render()
 	{
 
 		/*
@@ -677,7 +946,16 @@ class Law
 		$dictionary = new Dictionary();
 		$dictionary->structure_id = $this->structure_id;
 		$dictionary->section_id = $this->section_id;
-		$terms = (array) $dictionary->term_list();
+		if (USE_GENERIC_TERMS !== TRUE)
+		{
+			$dictionary->generic_terms = FALSE;
+		}
+		$tmp = $dictionary->term_list();
+		if ($tmp !== FALSE)
+		{
+			$terms = (array) $tmp;
+			unset($tmp);
+		}
 
 		/*
 		 * If we've gotten a list of dictionary terms.
@@ -745,7 +1023,12 @@ class Law
 		{
 			$autolinker = new State_Autolinker;
 		}
-		$autolinker = new Autolinker;
+		$autolinker = new Autolinker(
+			array(
+				'edition_id' => $this->edition_id,
+				'db' => $this->db
+			)
+		);
 
 		/*
 		 * Iterate through every section to make some basic transformations.
@@ -759,14 +1042,27 @@ class Law
 			$section->text = str_replace('§ ', '§&nbsp;', $section->text);
 
 			/*
-			 * Turn every code reference in every paragraph into a link.
+			 * Highlight any search terms.
 			 */
-			$section->text = preg_replace_callback(SECTION_PCRE, array($autolinker, 'replace_sections'), $section->text);
+			if (!empty($_GET['q']))
+			{
+				$query = str_replace('"', '', $_GET['q']);
+				$query = explode(' ', $query);
+				foreach($query as $term)
+				{
+					$section->text = str_replace($term, '<span class="search-term">' . $term . '</span>', $section->text);
+				}
+			}
 
 			/*
-			 * Turn every pair of newlines into carriage returns
+			 * Turn every code reference in every paragraph into a link.
 			 */
-			$section->text = nl2br($section->text);
+			$section->text = preg_replace_callback(SECTION_REGEX, array($autolinker, 'replace_sections'), $section->text);
+
+			/*
+			 * Turn every pair of newlines into carriage returns.
+			 */
+			$section->text = preg_replace('/\R\R/', '<br /><br />', $section->text);
 
 			/*
 			 * Use our dictionary to embed dictionary terms in the form of span titles.
@@ -825,16 +1121,14 @@ class Law
 			/*
 			 * Start a paragraph of the appropriate type.
 			 */
-			$html .= '<';
 			if ($paragraph->type == 'section')
 			{
-				$html .= 'p';
+				$html .= '<p>';
 			}
 			elseif ($paragraph->type == 'table')
 			{
-				$html .= 'pre class="table"';
+				$html .= '<div class="tabular"><pre class="table">';
 			}
-			$html .= '>';
 
 			/*
 			 * If we've got a section prefix, and it's not the same as the last one, then display
@@ -870,18 +1164,13 @@ class Law
 			/*
 			 * If we've got a section prefix, append a paragraph link to the end of this section.
 			 */
-			if (!empty($paragraph->prefix))
+			if (!empty($paragraph->prefix) && !defined('EXPORT_IN_PROGRESS'))
 			{
 				/*
 				 * Assemble the permalink
 				 */
 
-				$permalink = 'http://';
-				if ($_SERVER['HTTPS'])
-				{
-					$permalink = 'https://';
-				}
-				$permalink .= $_SERVER['SERVER_NAME'] . $_SERVER['REQUEST_URI'] . '#'
+				$permalink = $_SERVER['REQUEST_URI'] . '#'
 					. $paragraph->prefix_anchor;
 
 				$html .= ' <a id="paragraph-' . $paragraph->id . '" class="section-permalink" '
@@ -893,7 +1182,7 @@ class Law
 			}
 			elseif ($paragraph->type == 'table')
 			{
-				$html .= '</pre>';
+				$html .= '</pre></div>';
 			}
 
 			/*
@@ -918,7 +1207,7 @@ class Law
 	/**
 	 * Takes the instant law object and turns it into a nicely formatted plain text version.
 	 */
-	function render_plain_text()
+	public function render_plain_text()
 	{
 
 		if (!isset($this->text))
@@ -1031,5 +1320,74 @@ class Law
 		return $text;
 
 	} // end render_plain_text()
+
+	/**
+	 * Get ids of all of the laws for a given edition.
+	 *
+	 * param int  $edition_id The edition to query.
+	 * param bool $result_handle_only Get the results or just return the handle.
+	 *                                This is useful when we don't have much memory.
+	 */
+	public function get_all_laws($edition_id, $result_handle_only = false)
+	{
+		$query_args = array(
+			':edition_id' => $edition_id
+		);
+		$query = 'SELECT laws.id
+			FROM laws
+			WHERE edition_id = :edition_id';
+
+		$statement = $this->db->prepare($query);
+		$result = $statement->execute($query_args);
+
+		if($result_handle_only)
+		{
+			return $statement;
+		}
+		else
+		{
+			return $statement->fetchAll();
+		}
+	}
+
+	/**
+	 * A stripped down version of the get_law() function.  Used by the Autolinker.
+	 */
+	public function get_matching_sections($section, $edition_id, $fields = array())
+	{
+		static $select_statement;
+		if(!isset($select_statement))
+		{
+			$sql = 'SELECT id, catch_line FROM laws WHERE section = :section AND
+				edition_id = :edition_id ORDER BY order_by';
+			$select_statement = $this->db->prepare($sql);
+		}
+
+		$sql_args = array(
+			':section' => $section,
+			':edition_id' => $edition_id
+		);
+
+		$select_result = $select_statement->execute($sql_args);
+
+		if ($select_result === FALSE || $select_statement->rowCount() == 0)
+		{
+			return FALSE;
+		}
+		else
+		{
+			$permalink_obj = new Permalink(array('db' => $this->db));
+
+			$laws = $select_statement->fetchAll(PDO::FETCH_OBJ);
+			foreach($laws as $key=>$law)
+			{
+				$permalink = $permalink_obj->get_preferred($law->id, 'law',
+					$edition_id);
+				$laws[$key]->url = $permalink->url;
+			}
+			return $laws;
+		}
+	}
+
 
 } // end Law

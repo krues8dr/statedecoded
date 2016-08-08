@@ -3,16 +3,33 @@
 /**
  * Default comes first
  */
-Router::addRoute('.*', array('ContentController', 'notFound'));
+// Anything else gets passed to the Permalink Controller to determine the correct handler.
+Router::addRoute('^(?P<route>.*)$', array('PermalinkController', 'handle'));
 
 /**
  * Specific routes next
  */
 // Main Index
-Router::addRoute('^/$', array('ContentController', 'index'));
+Router::addRoute('^/$', 'home.php');
 
-// About page.
-Router::addRoute('^/about/$', array('ContentController', 'about'));
+// About page
+Router::addRoute('^/about/?(.*)', 'about.php');
+
+// Admin section
+Router::addRoute('^/admin(/.*)?$', 'admin/index.php');
+
+// Downloads and API
+Router::addRoute('^/downloads/?(.*)', 'downloads/index.php');
+
+// Editions list
+Router::addRoute('^/editions/?(.*)', array('EditionController', 'handle'));
+
+// Search
+Router::addRoute('^/search/?(.*)', 'search.php');
+
+// Browse
+Router::addRoute('^/browse/?((?P<edition>.*?)/)?$', array('StructureController', 'handle'));
+
 
 // New activation
 Router::addRoute('^/api-key/activate/(?P<secret>.*)', array('ApiKeyController', 'activateKey'));
@@ -26,9 +43,16 @@ Router::addRoute('^/api-key/$', array('ApiKeyController', 'requestKey'));
  * Dynamic routes last, most specific to least specific
  */
 
-// The important stuff: Structures and Laws
-Router::addRoute('^/(?P<section_number>[0-9A-Za-z\.]{1,4}-[0-9\.:]{1,10})/$',
-	'law.php');
+// API
 
-Router::addRoute('^/(?P<section>(([0-9A-Za-z\.]{1,8})/)+)$',
-	'structure.php');
+Router::addRoute('^/api/((?P<api_version>([0-9]+)\.([0-9]+))/)?(?P<operation>structure|law|)(?P<route>/.*)',
+	array('APIPermalinkController', 'handle'));
+
+Router::addRoute('^/api/((?P<api_version>([0-9]+)\.([0-9]+))/)?dictionary/((?P<term>.*)/)?',
+	array('APIDictionaryController', 'handle'));
+
+Router::addRoute('^/api/((?P<api_version>([0-9]+)\.([0-9]+))/)?search/(?P<term>.*)/',
+	array('APISearchController', 'handle'));
+
+Router::addRoute('^/api/((?P<api_version>([0-9]+)\.([0-9]+))/)?suggest/(?P<term>.*)/',
+	array('APISuggestController', 'handle'));

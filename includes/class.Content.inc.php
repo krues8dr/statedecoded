@@ -1,44 +1,95 @@
 <?php
 
-/*
- * Reads a JSON file to load content.
- * Later, this could read from a database, if need be.
+/**
+ * The Content class, a simple holder of content
+ *
+ * PHP version 5
+ *
+ * @license		http://www.gnu.org/licenses/gpl.html GPL 3
+ * @version		0.9
+ * @link		http://www.statedecoded.com/
+ * @since		0.7
+ *
  */
+
 class Content
 {
 
-	public $content;
-	public $json;
-	public $filename;
-	
-	/*
-	 * Initialize our object
+	public $data = array();
+
+	/**
+	 * Add a property to our content.
 	 */
-	public function __construct($type) 
+	public function set($field, $content = null)
 	{
-		/*
-		 * Require something that resembles a filename.
-		 */
-		if (preg_match('/^([a-zA-Z0-9-_]+)$/', $type)) 
+		return $this->data[$field] = $content;
+	}
+
+	/**
+	 * Append to existing content.
+	 */
+	public function append($field, $content = null)
+	{
+	
+		if(!isset($this->data[$field]))
 		{
-			$this->filename = WEB_ROOT . '/content/' . $type . '.json';
-			$this->json = file_get_contents($this->filename);
-			$this->content = json_decode($this->json);
+			$this->data[$field] = '';
+		}
+		return $this->data[$field] .= $content;
+		
+	}
+
+	/**
+	 * Prepend to existing content.
+	 */
+	public function prepend($field, $content = null)
+	{
+		return $this->data[$field] = $content . $this->data[$field];
+	}
+
+	/**
+	 * Add several properties to our content.
+	 */
+	public function set_many($data)
+	{
+	
+		foreach ($data as $name => $value)
+		{
+			$this->data[$name] = $value;
+		}
+		
+	}
+
+	public function get($field=null)
+	{
+	
+		if (isset($field))
+		{
+		
+			if(isset($this->data[$field]))
+			{
+				return $this->data[$field];
+			}
+			else
+			{
+				/*
+				 * We return an empty string so we can easily check strlen() .
+				 * Using empty() will throw an error:
+				 *  "Can't use method return value in write context"
+				 */
+				return '';
+			}
+
+		}
+		else
+		{
+			return $this->data;
 		}
 	}
-	
-	/*
-	 * Retrieve all text relevant to a given section
-	 */
-	public function get_text($section)
+
+	public function is_set($field)
 	{
-		if (!$section)
-		{
-			return $this->content;
-		}
-		elseif (isset($this->content->$section))
-		{
-			return $this->content->$section;
-		}
+		return isset($this->data[$field]);
 	}
+
 }
